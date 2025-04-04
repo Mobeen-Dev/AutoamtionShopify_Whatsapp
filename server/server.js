@@ -14,9 +14,9 @@ app.use(express.json());
 
 // In-memory storage for webhook queue and processed history
 let webhookQueue = [];
+let ordersQueue = [];
 let history = [];
-// // Global variables to session start time
-// global.sessionStartTime = null;
+
 
 // Routes For CheckUp
 app.get("/", (req, res) => {
@@ -44,21 +44,13 @@ app.post("/webhook", (req, res) => {
   res.status(200).json({ message: "Webhook received and queued." });
 });
 
-// // When the client is ready, set the session start time
-// client.on("ready", () => {
-//   console.log("WhatsApp client is ready!");
-//   global.sessionStartTime = Date.now();
-// });
 
-// // Start the client
-// client.initialize();
-
-// /**
-//  * Background Process:
-//  * Periodically process the webhook queue every 5 seconds.
-//  * For each payload, simulate processing (e.g., sending a WhatsApp message),
-//  * log the result in history, and remove the entry from the queue.
-//  */
+/**
+ * Background Process:
+ * Periodically process the webhook queue every 5 seconds.
+ * For each payload, simulate processing (e.g., sending a WhatsApp message),
+ * log the result in history, and remove the entry from the queue.
+ */
 // const processQueue = () => {
 //   if (webhookQueue.length > 0) {
 //     const payload = webhookQueue.shift();
