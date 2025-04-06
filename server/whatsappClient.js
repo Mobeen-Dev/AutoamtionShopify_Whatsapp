@@ -59,23 +59,26 @@ export default function getQrCode(req, res) {
  * @param {string} message - The text message to send.
  * @returns {Promise} - Resolves with the result of the sent message.
  */
-export async function sendMessageToNumber(
+export async function sendMessageToNumber(req, res,
   number = "923154595885",
   message = "BetaTesting@DigilogSoftwares"
 ) {
   // Ensure the chat ID is in the format of number@c.us
-  let chatId = number.includes("@") ? number : `${number}@c.us`;
+  // let chatId = number.includes("@") ? number : `${number}@c.us`;
+  let chatId = `${number}@c.us`;
 
-  if (!client.info || !client.info.wid) {
-    throw new Error("Client is not authenticated. Please scan the QR code.");
-  }
+  // if (!client.info || !client.info.wid) {
+  //   throw new Error("Client is not authenticated. Please scan the QR code.");
+  // }
 
   try {
     const response = await client.sendMessage(chatId, message);
     console.log(`Message sent to ${chatId}:`, response);
+    res.json({ success: true, message: "Authentication successful" });
     return response;
   } catch (error) {
     console.error(`Failed to send message to ${chatId}:`, error);
     throw error;
   }
+ 
 }

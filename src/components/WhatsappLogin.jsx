@@ -10,7 +10,7 @@ function Login() {
     try {
       const response = await fetch("http://localhost:3000/whatsapp-qr");
       const data = await response.json();
-      
+      console.log(data);
       if (data.success) {
         setAuthenticated(true);
         setQrData(null);
@@ -28,6 +28,7 @@ function Login() {
     try {
       const response = await fetch("http://localhost:3000/whatsapp-msg");
       const data = await response.json();
+      console.log(data);
       
     //   if (data.success) {
     //     setAuthenticated(true);

@@ -17,7 +17,6 @@ let webhookQueue = [];
 let ordersQueue = [];
 let history = [];
 
-
 // Routes For CheckUp
 app.get("/", (req, res) => {
   const currentTime = new Date();
@@ -36,13 +35,166 @@ app.get("/progress", (req, res) => {
   });
 });
 
+// Helper function to handle responses form webhook
+
+/** function oldparseWebhook (payload = {}) {
+  // Safely retrieve top-level fields
+  const orderNumber = payload.order_number || "";
+  let orderDate = payload.created_at || "";
+  if (orderDate) {
+    // Replace T with  ->  and remove anything after +
+    orderDate = orderDate.replace("T", " -> ");
+    orderDate = orderDate.slice(0, orderDate.length - 6);
+  }
+
+  // Retrieve customer fields
+  const customer = payload.customer || {};
+  const defaultAddress = customer.default_address || {};
+
+  // Determine the customer name
+  let customerName = defaultAddress.name || "";
+  if (!customerName) {
+    const firstName = customer.first_name || "";
+    const lastName = customer.last_name || "";
+    customerName = (firstName + " " + lastName).trim();
+  }
+
+  // Determine the customer phone
+  let customerPhone = (defaultAddress.phone || "").trim();
+  if (!customerPhone) {
+    const billingAddress = payload.billing_address || {};
+    customerPhone = billingAddress.phone || "";
+  }
+  customerPhone = customerPhone.replace(/[^0-9]/g, ""); // Remove non-numeric characters
+
+  // Extract items
+  const lineItems = payload.line_items || [];
+  const items = lineItems.map((item) => ({
+    name: item.name || "",
+    quantity: item.quantity || 0,
+    price: item.price || ""
+  }));
+
+  // Extract summary information
+  const subtotal = payload.subtotal_price || "";
+  const tax = payload.total_tax || "";
+  const total = payload.total_price || "";
+
+  // Extract shipping information
+  const shippingLines = payload.shipping_lines || [];
+  let shippingFee = null;
+  let shippingMethod = null;
+  if (shippingLines.length > 0) {
+    shippingFee = shippingLines[0].price || null;
+    shippingMethod = shippingLines[0].title || null;
+  }
+
+  const shippingAddress = payload.shipping_address || {};
+  const address = [
+    shippingAddress.address1 || "",
+    shippingAddress.address2 || "",
+    shippingAddress.city || "",
+    shippingAddress.country || ""
+  ].join(", ");
+
+  // Construct the result object
+  return {
+    orderNumber,
+    orderDate,
+    customerName,
+    customerPhone,
+    items,
+    subtotal,
+    tax,
+    shippingFee,
+    total,
+    address,
+    shippingMethod
+  };
+}*/
+
+function parseWebhook(payload = {}) {
+  // Destructure the main fields
+  const {
+    order_number: orderNumber = "",
+    created_at: rawOrderDate = "",
+    customer: {
+      default_address: {
+        name: defaultName = "",
+        phone: defaultPhone = "",
+      } = {},
+      first_name: firstName = "",
+      last_name: lastName = "",
+    } = {},
+    billing_address: { phone: billingPhone = "" } = {},
+    line_items: lineItems = [],
+    subtotal_price: subtotal = "",
+    total_tax: tax = "",
+    total_price: total = "",
+    shipping_lines: shippingLines = [],
+    shipping_address: {
+      address1 = "",
+      address2 = "",
+      city = "",
+      country = "",
+    } = {},
+  } = payload;
+
+  // Fix up the order date
+  let orderDate = rawOrderDate
+    ? rawOrderDate.replace("T", " -> ").slice(0, -6)
+    : "";
+
+  // Determine the customer name
+  let customerName = defaultName || (firstName + " " + lastName).trim();
+
+  // Determine the customer phone
+  let customerPhone = defaultPhone.trim() || billingPhone;
+  // Remove non-numeric characters
+  customerPhone = customerPhone.replace(/[^0-9]/g, "");
+
+  // Map line items
+  const items = lineItems.map(({ name = "", quantity = 0, price = "" }) => ({
+    name,
+    quantity,
+    price,
+  }));
+
+  // Shipping information
+  let shippingFee = null;
+  let shippingMethod = null;
+  if (shippingLines.length > 0) {
+    shippingFee = shippingLines[0].price || null;
+    shippingMethod = shippingLines[0].title || null;
+  }
+
+  // Build full shipping address
+  const address = [address1, address2, city, country].join(", ");
+
+  // Return the final object
+  return {
+    orderNumber,
+    orderDate,
+    customerName,
+    customerPhone,
+    items,
+    subtotal,
+    tax,
+    shippingFee,
+    total,
+    address,
+    shippingMethod,
+  };
+}
+
 // Routes For Webhook
 app.post("/webhook", (req, res) => {
   const payload = req.body;
-  webhookQueue.push(payload);
+  webhookQueue.push(parseWebhook(payload));
   console.log("Webhook received and queued:", payload);
   res.status(200).json({ message: "Webhook received and queued." });
 });
+
 
 
 /**
