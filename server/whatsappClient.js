@@ -1,84 +1,128 @@
-// whatsapp/whatsappClient.js
-import pkg from "whatsapp-web.js";
-const { Client, LocalAuth } = pkg;
-import QRCode from "qrcode";
+// Import dependencies and load environment variables
+import dotenv from "dotenv";
+dotenv.config();
 
-let currentQrCode = null;
-let isAuthenticated = false;
-let sessionStartTime = null;
+import wwebjs from "whatsapp-web.js";
+const { Client, RemoteAuth } = wwebjs;
 
-const client = new Client({
-  authStrategy: new LocalAuth(),
-});
+import {
+  initializeApp,
+  getStorage,
+  FirebaseStorageStore,
+} from "wwebjs-firebase-storage";
 
-client.on("qr", async (qr) => {
-  try {
-    currentQrCode = await QRCode.toDataURL(qr);
-    console.log("QR code generated");
-  } catch (err) {
-    console.error("Error generating QR code:", err);
+import qrcode_terminal from "qrcode-terminal";
+
+// Define the class
+class WhatsAppMessenger {
+  /**
+   * @param {string} senderNumber - A sender identifier if needed (not used directly by the client)
+   * @param {string[]} recipients - Array of phone numbers (without the '@c.us' suffix)
+   * @param {string} message - The message that will be sent to all recipients
+   */
+  constructor(senderNumber, recipients, message) {
+    this.senderNumber = senderNumber; // Optional – could be used for logging
+    this.recipients = recipients;
+    this.message = message;
+
+    // Initialize Firebase app with credentials from environment variables
+    this.app = initializeApp({
+      apiKey: process.env.FIREBASE_apiKey,
+      authDomain: process.env.FIREBASE_authDomain,
+      projectId: process.env.FIREBASE_projectId,
+      storageBucket: process.env.FIREBASE_storageBucket,
+      messagingSenderId: process.env.FIREBASE_messagingSenderId,
+      appId: process.env.FIREBASE_appId,
+    });
+
+    // Create a new WhatsApp client instance with RemoteAuth via Firebase Storage
+    this.client = new Client({
+      clientId: "client-one",
+      authStrategy: new RemoteAuth({
+        store: new FirebaseStorageStore({
+          firebaseStorage: getStorage(this.app),
+          sessionPath: "sessions-whatsapp-web.js", // Saved in a sub-directory
+        }),
+        backupSyncIntervalMs: 60000, // e.g., backup session every 60 seconds
+      }),
+      // You may include other client options here if required
+    });
+
+    // Set up event listeners
+
+    // Display QR code for authentication
+    this.client.on("qr", (qr) => {
+      qrcode_terminal.generate(qr, { small: true });
+    });
+
+    this.client.on("remote_session_saved", () =>
+      console.log("Remote session saved!")
+    );
+
+    this.client.on("authenticated", () =>
+      console.log("Authenticated successfully!")
+    );
+    
+    this.client.on("auth_failure", () =>
+      console.log("Authentication failed!")
+    );
+
+    // When client is ready, send the messages to all recipients
+    this.client.on("ready", async () => {
+      console.log("Client is ready!");
+      await this.sendMessages();
+    });
   }
-});
 
-// Log when authenticated successfully
-client.on("authenticated", (session) => {
-  console.log("Authenticated successfully!");
-  isAuthenticated = true;
-});
+  /**
+   * Sends a message to a single number. The number is formatted as "number@c.us".
+   * @param {string} number - The phone number to send the message to.
+   * @param {string} message - The message to send.
+   * @returns {Promise<any>}
+   */
+  async sendMessageToNumber(number, message) {
+    // Format the phone number as needed (e.g., add '@c.us' if missing)
+    let chatId = number.includes("@") ? number : `${number}@c.us`;
 
-client.on("auth_failure", (msg) => {
-  console.error("Authentication failure:", msg);
-  isAuthenticated = false;
-  // Optionally, you can clear session data or force reinitialization here.
-});
+    // Check that the client has been authenticated
+    if (!this.client.info || !this.client.info.wid) {
+      throw new Error("Client is not authenticated. Please scan the QR code.");
+    }
 
-client.on("ready", () => {
-  console.log("WhatsApp Client is ready!");
-  sessionStartTime = Date.now(); // Set the session start time
-  isAuthenticated = true;
-  currentQrCode = null; // Clear the QR code once authenticated
-});
+    try {
+      const response = await this.client.sendMessage(chatId, message);
+      console.log(`Message sent to ${chatId}:`, response);
+      return response;
+    } catch (error) {
+      console.error(`Failed to send message to ${chatId}:`, error);
+      throw error;
+    }
+  }
 
-client.initialize();
+  /**
+   * Iterates over the list of recipients and sends the message to each.
+   */
+  async sendMessages() {
+    for (const contact of this.recipients) {
+      await this.sendMessageToNumber(contact, this.message);
+    }
+    this.closeSession();
+  }
 
-// Export an Express-compatible route handler
-export default function getQrCode(req, res) {
-  if (isAuthenticated) {
-    res.json({ success: true, message: "Authentication successful" });
-  } else if (currentQrCode) {
-    res.json({ success: false, qrCode: currentQrCode });
-  } else {
-    res.status(202).json({ message: "QR code not generated yet" });
+  /**
+   * Closes the client session.
+   */
+  closeSession() {
+    console.log("Closing session.");
+    this.client.destroy(); // Shuts down the client and cleans up resources
+  }
+
+  /**
+   * Starts the initialization process for the client.
+   */
+  initialize() {
+    this.client.initialize();
   }
 }
 
-/**
- * Sends a WhatsApp message to a given number.
- *
- * @param {string} number - The recipient's phone number (e.g., "1234567890").
- * @param {string} message - The text message to send.
- * @returns {Promise} - Resolves with the result of the sent message.
- */
-export async function sendMessageToNumber(req, res,
-  number = "923154595885",
-  message = "BetaTesting@DigilogSoftwares"
-) {
-  // Ensure the chat ID is in the format of number@c.us
-  // let chatId = number.includes("@") ? number : `${number}@c.us`;
-  let chatId = `${number}@c.us`;
-
-  // if (!client.info || !client.info.wid) {
-  //   throw new Error("Client is not authenticated. Please scan the QR code.");
-  // }
-
-  try {
-    const response = await client.sendMessage(chatId, message);
-    console.log(`Message sent to ${chatId}:`, response);
-    res.json({ success: true, message: "Authentication successful" });
-    return response;
-  } catch (error) {
-    console.error(`Failed to send message to ${chatId}:`, error);
-    throw error;
-  }
- 
-}
+export default WhatsAppMessenger;

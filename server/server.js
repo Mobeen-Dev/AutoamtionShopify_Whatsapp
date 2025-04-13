@@ -1,8 +1,17 @@
 import QRCode from "qrcode";
 import express from "express";
 import cors from "cors";
-import getQrCode, { sendMessageToNumber } from "./whatsappClient.js";
+// import getQrCode, { sendMessageToNumber } from "./remoteAuthTest.js";
+import {RequestQueue, RequestGroup} from "./DataStucture.js";
+import {countryPhoneCodes} from "./CountriesCode.js";
 
+// deterministicMapping.js
+import crypto from "crypto";
+import dotenv from "dotenv";
+dotenv.config();
+
+// Use a 32-byte key (256-bit). Replace with your secure key or load from env.
+const SECRET_KEY = process.env.ENCRYPTION_KEY;
 const app = express();
 
 app.use(
@@ -13,7 +22,8 @@ app.use(
 app.use(express.json());
 
 // In-memory storage for webhook queue and processed history
-let webhookQueue = [];
+// let webhookQueue = [];
+const webhookQueue = new RequestQueue();
 let ordersQueue = [];
 let history = [];
 
@@ -24,8 +34,8 @@ app.get("/", (req, res) => {
 });
 
 // Routes For Frontend
-app.get("/whatsapp-qr", getQrCode);
-app.get("/whatsapp-msg", sendMessageToNumber);
+// app.get("/whatsapp-qr", getQrCode);
+// app.get("/whatsapp-msg", sendMessageToNumber);
 app.get("/progress", (req, res) => {
   res.json({
     delivered: history.length,
@@ -36,10 +46,12 @@ app.get("/progress", (req, res) => {
 });
 
 // Helper function to handle responses form webhook
-
-/** function oldparseWebhook (payload = {}) {
+function parseWebhook(payload = {}) {
   // Safely retrieve top-level fields
-  const orderNumber = payload.order_number || "";
+  const orderNumber = payload.order_number || "404";
+  const orderStatusUrl =
+    payload.order_status_url ||
+    "https://www.shopify.com/";
   let orderDate = payload.created_at || "";
   if (orderDate) {
     // Replace T with  ->  and remove anything after +
@@ -56,23 +68,40 @@ app.get("/progress", (req, res) => {
   if (!customerName) {
     const firstName = customer.first_name || "";
     const lastName = customer.last_name || "";
+    if(firstName!="" && lastName!="") {
     customerName = (firstName + " " + lastName).trim();
+    }
   }
 
   // Determine the customer phone
-  let customerPhone = (defaultAddress.phone || "").trim();
-  if (!customerPhone) {
+  let customerPhone = (defaultAddress.phone || "404").trim();
+  const countryCodekey = (defaultAddress.country_code || "PK");
+  const countryCode = countryPhoneCodes[countryCodekey] || "404";
+  
+  if (customerPhone == "404") {
     const billingAddress = payload.billing_address || {};
-    customerPhone = billingAddress.phone || "";
+    customerPhone = billingAddress.phone || "404";
   }
   customerPhone = customerPhone.replace(/[^0-9]/g, ""); // Remove non-numeric characters
+  if (customerPhone.startsWith(countryCode)) {
+    console.log("Phone number already has the country code:", customerPhone);
+  } else {
+    // Remove the left-most digit if it is a "0".
+    if (customerPhone.startsWith("0")) {
+      customerPhone = customerPhone.substring(1); // removes the first character.
+    }
+    // Prepend the international country code.
+    customerPhone = countryCode + customerPhone;
+    console.log("Updated phone number with country code:", customerPhone);
+  }
+  
 
   // Extract items
   const lineItems = payload.line_items || [];
   const items = lineItems.map((item) => ({
     name: item.name || "",
     quantity: item.quantity || 0,
-    price: item.price || ""
+    price: item.price || "",
   }));
 
   // Extract summary information
@@ -94,86 +123,13 @@ app.get("/progress", (req, res) => {
     shippingAddress.address1 || "",
     shippingAddress.address2 || "",
     shippingAddress.city || "",
-    shippingAddress.country || ""
+    shippingAddress.country || "",
   ].join(", ");
 
   // Construct the result object
   return {
     orderNumber,
-    orderDate,
-    customerName,
-    customerPhone,
-    items,
-    subtotal,
-    tax,
-    shippingFee,
-    total,
-    address,
-    shippingMethod
-  };
-}*/
-
-function parseWebhook(payload = {}) {
-  // Destructure the main fields
-  const {
-    order_number: orderNumber = "",
-    created_at: rawOrderDate = "",
-    customer: {
-      default_address: {
-        name: defaultName = "",
-        phone: defaultPhone = "",
-      } = {},
-      first_name: firstName = "",
-      last_name: lastName = "",
-    } = {},
-    billing_address: { phone: billingPhone = "" } = {},
-    line_items: lineItems = [],
-    subtotal_price: subtotal = "",
-    total_tax: tax = "",
-    total_price: total = "",
-    shipping_lines: shippingLines = [],
-    shipping_address: {
-      address1 = "",
-      address2 = "",
-      city = "",
-      country = "",
-    } = {},
-  } = payload;
-
-  // Fix up the order date
-  let orderDate = rawOrderDate
-    ? rawOrderDate.replace("T", " -> ").slice(0, -6)
-    : "";
-
-  // Determine the customer name
-  let customerName = defaultName || (firstName + " " + lastName).trim();
-
-  // Determine the customer phone
-  let customerPhone = defaultPhone.trim() || billingPhone;
-  // Remove non-numeric characters
-  customerPhone = customerPhone.replace(/[^0-9]/g, "");
-
-  // Map line items
-  const items = lineItems.map(({ name = "", quantity = 0, price = "" }) => ({
-    name,
-    quantity,
-    price,
-  }));
-
-  // Shipping information
-  let shippingFee = null;
-  let shippingMethod = null;
-  if (shippingLines.length > 0) {
-    shippingFee = shippingLines[0].price || null;
-    shippingMethod = shippingLines[0].title || null;
-  }
-
-  // Build full shipping address
-  const address = [address1, address2, city, country].join(", ");
-
-  // Return the final object
-  return {
-    orderNumber,
+    orderStatusUrl,
     orderDate,
     customerName,
     customerPhone,
@@ -187,15 +143,133 @@ function parseWebhook(payload = {}) {
   };
 }
 
+// function oldparseWebhook(payload = {}) {
+//   // Destructure the main fields
+//   const {
+//     order_number: orderNumber = "404",
+//     order_status_url:
+//       orderStatusUrl = "https://shopify.dev/docs/api/admin-graphql/latest/objects/order",
+//     created_at: rawOrderDate = "",
+//     customer: {
+//       default_address: {
+//         name: defaultName = "Sample Name",
+//         phone: defaultPhone = "923111786786",
+//       } = {},
+//       first_name: firstName = "Sample",
+//       last_name: lastName = "Name",
+//     } = {},
+//     billing_address: { phone: billingPhone = "923111786786" } = {},
+//     line_items: lineItems = [],
+//     subtotal_price: subtotal = "0",
+//     total_tax: tax = "0",
+//     total_price: total = "0",
+//     shipping_lines: shippingLines = [],
+//   } = payload;
+
+//   const shipping_address = payload.shipping_address || {};
+//   const {
+//     address1 = "Sample Address",
+//     address2 = "",
+//     city = "Sample City",
+//     country = "Sample Country",
+//   } = shipping_address;
+
+//   // Fix up the order date
+//   let orderDate = rawOrderDate
+//     ? rawOrderDate.replace("T", " -> ").slice(0, -6)
+//     : "";
+
+//   // Determine the customer name
+//   let customerName = defaultName || (firstName + " " + lastName).trim();
+
+//   // Determine the customer phone
+//   let customerPhone = defaultPhone.trim() || billingPhone;
+//   // Remove non-numeric characters
+//   customerPhone = customerPhone.replace(/[^0-9]/g, "");
+
+//   // Map line items
+//   const items = lineItems.map(({ name = "", quantity = 0, price = "" }) => ({
+//     name,
+//     quantity,
+//     price,
+//   }));
+
+//   // Shipping information
+//   let shippingFee = null;
+//   let shippingMethod = null;
+//   if (shippingLines.length > 0) {
+//     shippingFee = shippingLines[0].price || null;
+//     shippingMethod = shippingLines[0].title || null;
+//   }
+
+//   // Build the full shipping address
+//   let address = "";
+//   if (address1) {
+//     address = [address1, address2, city, country].join(", ");
+//   }
+
+//   // Return the final object
+//   return {
+//     orderNumber,
+//     orderStatusUrl,
+//     orderDate,
+//     customerName,
+//     customerPhone,
+//     items,
+//     subtotal,
+//     tax,
+//     shippingFee,
+//     total,
+//     address,
+//     shippingMethod,
+//   };
+//}
+
 // Routes For Webhook
+
 app.post("/webhook", (req, res) => {
   const payload = req.body;
-  webhookQueue.push(parseWebhook(payload));
-  console.log("Webhook received and queued:", payload);
+  //console.log("Webhook received and queued:", payload);
+  console.log("101 Parsed payload:", payload);
+  // webhookQueue.push(parseWebhook(payload));
   res.status(200).json({ message: "Webhook received and queued." });
 });
 
+app.post("/receive", (req, res) => {
+  res.status(200);
+});
 
+function deterministicDecrypt(ciphertextBase64) {
+  // Convert base64 string back to buffer.
+  const ciphertextBuffer = Buffer.from(ciphertextBase64, "base64");
+  const decipher = crypto.createDecipheriv(
+    "aes-256-ecb",
+    Buffer.from(SECRET_KEY, "utf8"),
+    null
+  );
+  decipher.setAutoPadding(true);
+  const decryptedBuffer = Buffer.concat([
+    decipher.update(ciphertextBuffer),
+    decipher.final(),
+  ]);
+  return decryptedBuffer.toString("utf8");
+}
+// Define a POST endpoint with a dynamic requestId parameter
+app.post("/request/:requestId", (req, res) => {
+  const { requestId } = req.params;
+  const senderId = deterministicDecrypt(requestId);
+  const payload = req.body; // Extract the payload from the request body
+  const body = parseWebhook(payload);
+
+
+  this.webhookQueue.enqueueRequest(senderId, body.customerPhone, JSON.stringify(body));
+  console.log("102 Parsed payload:\n\n\n\n\n\n\n");
+  console.log("Enqueued payload:", webhookQueue.processNext());
+
+
+  // Send a JSON response indicating the ID was received
+  res.status(200).json({ message: `ID received`});
+});
 
 /**
  * Background Process:

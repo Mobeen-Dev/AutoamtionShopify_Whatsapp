@@ -56,6 +56,8 @@ export async function sendMessageToNumber(
     throw error;
   }
 }
+
+
 client.on("remote_session_saved", () => console.log("Remote session saved!"));
 client.on("authenticated", () => console.log("Authenticated!"));
 client.on("auth_failure", () => console.log("Authentication failed!"));
