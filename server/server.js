@@ -262,10 +262,11 @@ app.post("/request/:requestId", (req, res) => {
   const body = parseWebhook(payload);
 
 
-  this.webhookQueue.enqueueRequest(senderId, body.customerPhone, JSON.stringify(body));
-  console.log("102 Parsed payload:\n\n\n\n\n\n\n");
-  console.log("Enqueued payload:", webhookQueue.processNext());
-
+  webhookQueue.enqueueRequest(senderId, body.customerPhone, JSON.stringify(body));
+  // console.log("102 Parsed payload:\n\n\n\n\n\n\n");
+  // console.log("Enqueued payload:", webhookQueue.processNext());
+  // console.log("102 Parsed payload:\n\n\n\n\n\n\n");
+  // console.log("Webhook received and queued:", body);
 
   // Send a JSON response indicating the ID was received
   res.status(200).json({ message: `ID received`});
