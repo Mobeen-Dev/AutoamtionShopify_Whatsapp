@@ -1,4 +1,15 @@
 
+# Deprecation Notice
+
+## Reason
+After the release of the **WhatsApp Official Cloud API**, the custom URL/Session tracking logic in this repository is no longer the recommended path. 
+
+## Migration
+Users should migrate to the [Meta Business Suite / WhatsApp Cloud API](https://developers.facebook.com/docs/whatsapp/cloud-api) for:
+* Official message templates
+* Higher rate limits
+* Better reliability
+
 # 💬 WhatsApp–Shopify Automation App
 
 An intelligent automation system that connects **Shopify** with **WhatsApp** using real-time webhooks to send **order confirmations**, **status updates**, and **customer notifications**.  
